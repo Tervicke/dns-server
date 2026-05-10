@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
-
+	"log"
+	"net"
 )
 
 //pos is 0 indexed
@@ -158,7 +158,13 @@ func print_header(packet []byte){
 
 }
 
+func process_packet(packet []byte){
+	fmt.Println(extract_header(packet))
+
+}
+
 func main(){
+	/*
 	 answer_packet , err := hex.DecodeString("3a17818000010004000000000973797377726169746803636f6d0000010001c00c00010001000038400004b9c76c99c00c00010001000038400004b9c76e99c00c00010001000038400004b9c76f99c00c00010001000038400004b9c76d99");
 	if err != nil {
 		fmt.Println("error decoding packet")
@@ -176,6 +182,28 @@ func main(){
 
 	 question_section(question_packet , extract_header(question_packet));
 	 question_section(answer_packet, extract_header(answer_packet));
+*/
+	address , err := net.ResolveUDPAddr("udp",":8080");
+	if err != nil {
+		log.Fatal(err)
+	}
+	conn , err := net.ListenUDP("udp",address);
 
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	buffer := make([]byte,1024)
+	for {
 
+		_  , _ , err := conn.ReadFrom(buffer)
+
+		if err != nil {
+			fmt.Printf("ERROR: %v\n",err);
+			continue;
+		}
+
+		process_packet(buffer);
+
+	}
 }
