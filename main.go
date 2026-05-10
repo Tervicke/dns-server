@@ -33,6 +33,12 @@ type header struct{
 	ARCOUNT uint16;
 };
 
+type question struct{
+	Name string;
+	Type uint16;
+	Class uint16;
+}
+
 func extract_header(packet []byte) header{
 	//extract the ID
 	header := header{};
@@ -95,6 +101,45 @@ func extract_header(packet []byte) header{
 	//return the header
 	return header;
 }
+func question_section(packet[] byte , header header){
+	// var questions []string;
+	var cur uint16 = 12;
+	 for i := 0 ; i < int(header.QDCOUNT) ; i++ {
+		 q := question{};
+		 label := "";
+		 //QNAME 
+		 for true{
+
+			 label_size := uint16(packet[cur]);
+
+			 cur++;
+			 //hit the delimeter
+			 if label_size == 0 {
+				 break;
+			 }
+
+
+			 for j := cur ; j < cur + label_size ; j++{
+				 label += string(rune(packet[j]));
+			 }
+			 cur += label_size;
+			 label += ".";
+		 }
+		 q.Name= label[0:len(label)-1];
+
+		 //QTYPE
+		 q.Type = binary.BigEndian.Uint16(packet[cur:cur+2]);
+		
+		 cur+=2;
+
+		//QCLASS
+		 q.Class = binary.BigEndian.Uint16(packet[cur:cur+2]);
+		 fmt.Println(q);
+		
+		 cur += 2;
+
+	}
+}
 
 func print_header(packet []byte){
 	header := extract_header(packet)
@@ -110,10 +155,11 @@ func print_header(packet []byte){
 	fmt.Println("ANCOUNT = ",header.ANCOUNT);
 	fmt.Println("NSCOUNT = ",header.NSCOUNT);
 	fmt.Println("ARCOUNT = ",header.ARCOUNT);
+
 }
 
 func main(){
-	answer_packet , err := hex.DecodeString("3a17818000010004000000000973797377726169746803636f6d0000010001c00c00010001000038400004b9c76c99c00c00010001000038400004b9c76e99c00c00010001000038400004b9c76f99c00c00010001000038400004b9c76d99");
+	 answer_packet , err := hex.DecodeString("3a17818000010004000000000973797377726169746803636f6d0000010001c00c00010001000038400004b9c76c99c00c00010001000038400004b9c76e99c00c00010001000038400004b9c76f99c00c00010001000038400004b9c76d99");
 	if err != nil {
 		fmt.Println("error decoding packet")
 		return
@@ -126,5 +172,10 @@ func main(){
 	}
 	print_header(question_packet)
 	fmt.Println("------");
-	print_header(answer_packet);
+// 	print_header(answer_packet);
+
+	 question_section(question_packet , extract_header(question_packet));
+	 question_section(answer_packet, extract_header(answer_packet));
+
+
 }
