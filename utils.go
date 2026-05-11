@@ -15,8 +15,14 @@ func parsePacket(packet []byte) DNSPacket{
 	DNSPacket.question = question;
 
 	answers , offset := readAnswer(packet , offset , int(header.ANCOUNT))
-
 	DNSPacket.answers = answers;
+
+	authority , offset := readAuthority(packet,offset,int(header.NSCOUNT))
+	DNSPacket.authority= authority;
+
+	additional , offset := readAdditional(packet , offset , int(header.ARCOUNT));
+	DNSPacket.additional = additional;
+
 	return DNSPacket;
 }
 
@@ -116,6 +122,9 @@ func readName(packet []byte ,offset int) (string , int){
 		 offset += label_size;
 		 label += ".";
 	 }
+	 if(len(label) == 0){
+		 return "",offset;
+	 }
 	 return label[0:len(label)-1],offset;
 }
 
@@ -143,7 +152,7 @@ func readQuestions(packet[] byte , QDCOUNT int) ( []question , int){
 
 //pos is 0 indexed
 func iszero(num uint16 , pos int) bool { 
-	if( num & (1 << pos) == 0){
+	if( (num & (1 << pos)) == 0){
 		return true;
 	}
 	return false;
@@ -186,15 +195,19 @@ func readResourceRecord(packet []byte ,offset int) (resourceRecord , int){
 	rdlen := binary.BigEndian.Uint16(packet[offset:offset+2]);
 	record.Len = rdlen;
 	offset += 2;
-
-	addr , ok := netip.AddrFromSlice(packet[offset:offset+int(rdlen)]);
-	if !ok {
-		fmt.Println("error occured could not parse the A or AAAA address");
-		return resourceRecord{},offset;
+	//A OR AAAA TYPE
+	if (rrtype == 1 || rrtype == 28){
+		addr , ok := netip.AddrFromSlice(packet[offset:offset+int(rdlen)]);
+		if !ok { fmt.Println("could not parse net ip addr"); }
+		record.Addr = addr;
+	} else if( rrtype == 2){
+		name , _ := readName(packet , offset);
+		record.Host = name;
+	}else{
+		fmt.Printf("not recgonized rrtype = %d , SKIPPING THE PAYLOAD",rrtype);
 	}
-	record.Addr = addr;
-	offset+=int(rdlen);
 
+	offset+=int(rdlen);
 	return record,offset;
 }
 
@@ -206,4 +219,25 @@ func readAnswer(packet []byte , offset int , ANCOUNT int) ([]resourceRecord,int)
 		answer = append(answer, record);
 	}
 	return answer,offset;
+}
+
+func readAuthority(packet []byte , offset int , NSCOUNT int) ([]resourceRecord,int){
+	var authority []resourceRecord;
+	for i := 0 ; i < NSCOUNT; i++ {
+		record , newOffset := readResourceRecord(packet,offset);
+		offset = newOffset;
+		authority = append(authority, record);
+	}
+	return authority,offset;
+}
+
+
+func readAdditional(packet []byte , offset int , ARCOUNT int) ([]resourceRecord,int){
+	var add []resourceRecord;
+	for i := 0 ; i < ARCOUNT; i++ {
+		record , newOffset := readResourceRecord(packet,offset);
+		offset = newOffset;
+		add = append(add, record);
+	}
+	return add,offset;
 }

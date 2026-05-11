@@ -6,14 +6,19 @@ type DNSPacket struct{
 	header header;
 	question []question;
 	answers []resourceRecord;
+	authority []resourceRecord;
+	additional []resourceRecord;
 }
+
 type resourceRecord struct{
 	Name string;
 	RRtype uint16;
 	Class uint16;
 	TTL uint32;
 	Len uint16;
+
 	Addr netip.Addr;
+	Host string; 
 }
 
 type header struct{
