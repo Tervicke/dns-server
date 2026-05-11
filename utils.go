@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"net/netip"
 )
 func parsePacket(packet []byte) DNSPacket{
 	DNSPacket := DNSPacket{};
@@ -13,8 +14,9 @@ func parsePacket(packet []byte) DNSPacket{
 	question , offset  := readQuestions(packet , int(header.QDCOUNT));
 	DNSPacket.question = question;
 
-	offset = readAnswer(packet , offset , int(header.ANCOUNT))
+	answers , offset := readAnswer(packet , offset , int(header.ANCOUNT))
 
+	DNSPacket.answers = answers;
 	return DNSPacket;
 }
 
@@ -82,7 +84,7 @@ func readHeader(packet []byte) header{
 	return header;
 }
 
-//returns the label as string for eg google.com + the offset at which the termination exists
+//returns the label as string for eg google.com + the next offset 
 func readName(packet []byte ,offset int) (string , int){
 	 //QNAME 
 	label := "";
@@ -94,11 +96,9 @@ func readName(packet []byte ,offset int) (string , int){
 		 if((label_size & 192) == 192){
 			 //get the temp 2 bytes
 			 temp := binary.BigEndian.Uint16(packet[offset:offset+2]);
-			 fmt.Printf("%016b\n",temp);
 			 pointerOffset := (temp  & 16383); //1683 = 0011 1111 1111 1111
-			 fmt.Printf("%016b\n",pointerOffset);
 			 name , _ := readName(packet , int(pointerOffset));
-			 offset++;
+			 offset+=2;
 			 return name,offset;
 		 }
 		
@@ -163,16 +163,47 @@ func print_header(packet []byte){
 	fmt.Println("ANCOUNT = ",header.ANCOUNT);
 	fmt.Println("NSCOUNT = ",header.NSCOUNT);
 	fmt.Println("ARCOUNT = ",header.ARCOUNT);
-}
-func readAnswer(packet []byte , offset int , ANCOUNT int) (int){
-	//start reading the resource record 
+ }
+
+func readResourceRecord(packet []byte ,offset int) (resourceRecord , int){
+	record := resourceRecord{};
 
 	name , offset := readName(packet , offset);
-	fmt.Println(name);
+	record.Name = name;
+	
+	rrtype := binary.BigEndian.Uint16(packet[offset:offset+2]);
+	record.RRtype = rrtype;
+	offset+=2;
 
-	return offset;
+	class := binary.BigEndian.Uint16(packet[offset:offset+2]);
+	record.Class = class;
+	offset += 2;
+
+	TTL := binary.BigEndian.Uint32(packet[offset:offset+4]);
+	record.TTL = TTL;
+	offset += 4;
+	
+	rdlen := binary.BigEndian.Uint16(packet[offset:offset+2]);
+	record.Len = rdlen;
+	offset += 2;
+
+	addr , ok := netip.AddrFromSlice(packet[offset:offset+int(rdlen)]);
+	if !ok {
+		fmt.Println("error occured could not parse the A or AAAA address");
+		return resourceRecord{},offset;
+	}
+	record.Addr = addr;
+	offset+=int(rdlen);
+
+	return record,offset;
 }
 
-func readResourceRecord(packet []byte , offset int , ANCOUNT int) {
-
+func readAnswer(packet []byte , offset int , ANCOUNT int) ([]resourceRecord,int){
+	var answer []resourceRecord;
+	for i := 0 ; i < ANCOUNT ; i++ {
+		record , newOffset := readResourceRecord(packet,offset);
+		offset = newOffset;
+		answer = append(answer, record);
+	}
+	return answer,offset;
 }

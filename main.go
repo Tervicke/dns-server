@@ -3,12 +3,15 @@ package main
 import (
 	"fmt"
 	"encoding/hex"
+	"encoding/json"
 )
 
 
 func processPacket(packet []byte) {
 	DNSPacket := parsePacket(packet);
-	fmt.Printf("%+v",DNSPacket);
+	fmt.Println(DNSPacket);
+	b, _ := json.MarshalIndent(DNSPacket, "", "  ")
+	fmt.Println(string(b))
 }
 
 func main(){

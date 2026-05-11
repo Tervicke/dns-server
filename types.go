@@ -1,10 +1,21 @@
 package main
 
+import "net/netip"
+
 type DNSPacket struct{
 	header header;
 	question []question;
-	answers any;
+	answers []resourceRecord;
 }
+type resourceRecord struct{
+	Name string;
+	RRtype uint16;
+	Class uint16;
+	TTL uint32;
+	Len uint16;
+	Addr netip.Addr;
+}
+
 type header struct{
 	Id uint16;
 
