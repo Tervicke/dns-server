@@ -2,8 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"net"
+	"encoding/hex"
 )
 
 
@@ -13,12 +12,12 @@ func processPacket(packet []byte) {
 }
 
 func main(){
-	/*
 	 answer_packet , err := hex.DecodeString("3a17818000010004000000000973797377726169746803636f6d0000010001c00c00010001000038400004b9c76c99c00c00010001000038400004b9c76e99c00c00010001000038400004b9c76f99c00c00010001000038400004b9c76d99");
 	if err != nil {
 		fmt.Println("error decoding packet")
 		return
 	}
+	/*
 	//question_packet , err := hex.DecodeString("25b7010000010000000000000973797377726169746803636f6d0000010001");
 	question_packet , err := hex.DecodeString("3a17010000010000000000000973797377726169746803636f6d0000010001");
 	if err != nil{
@@ -35,6 +34,7 @@ func main(){
 
 
 	// start the udp server
+	/*
 	address , err := net.ResolveUDPAddr("udp",":8080");
 	if err != nil {
 		log.Fatal(err)
@@ -57,4 +57,6 @@ func main(){
 
 		processPacket(buffer);
 	}
+	*/
+	processPacket(answer_packet)
 }

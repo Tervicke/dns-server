@@ -10,8 +10,10 @@ func parsePacket(packet []byte) DNSPacket{
 	header := readHeader(packet);
 	DNSPacket.header = header;
 	
-	question := readQuestions(packet,header.QDCOUNT);
+	question , offset  := readQuestions(packet , int(header.QDCOUNT));
 	DNSPacket.question = question;
+
+	offset = readAnswer(packet , offset , int(header.ANCOUNT))
 
 	return DNSPacket;
 }
@@ -81,13 +83,26 @@ func readHeader(packet []byte) header{
 }
 
 //returns the label as string for eg google.com + the offset at which the termination exists
-func readName(packet []byte ,offset uint16) (string , uint16){
-	 label := "";
+func readName(packet []byte ,offset int) (string , int){
 	 //QNAME 
+	label := "";
 	 for true{
 
-		 label_size := uint16(packet[offset]);
+		 label_size := int(packet[offset]);
 
+		 //pointer detected ( 192 = 1100 0000 )
+		 if((label_size & 192) == 192){
+			 //get the temp 2 bytes
+			 temp := binary.BigEndian.Uint16(packet[offset:offset+2]);
+			 fmt.Printf("%016b\n",temp);
+			 pointerOffset := (temp  & 16383); //1683 = 0011 1111 1111 1111
+			 fmt.Printf("%016b\n",pointerOffset);
+			 name , _ := readName(packet , int(pointerOffset));
+			 offset++;
+			 return name,offset;
+		 }
+		
+		 //normally parse the labels
 		 offset++;
 		 //hit the delimeter
 		 if label_size == 0 {
@@ -101,13 +116,13 @@ func readName(packet []byte ,offset uint16) (string , uint16){
 		 offset += label_size;
 		 label += ".";
 	 }
-	 return label,offset;
+	 return label[0:len(label)-1],offset;
 }
 
-func readQuestions(packet[] byte , QDCOUNT uint16) []question{
-	var questions []question;
-	var offset uint16 = 12; //start with 12 because the header is exactly 12 bytes (i.e ends at 11th index)
-	 for i := 0 ; i < int(QDCOUNT) ; i++ {
+func readQuestions(packet[] byte , QDCOUNT int) ( []question , int){
+ 	var questions []question;
+	var offset int = 12; //start with 12 because the header is exactly 12 bytes (i.e ends at 11th index)
+	 for i := 0 ; i < QDCOUNT ; i++ {
 		 q := question{};
 		 q.Name , offset = readName(packet,offset);
 
@@ -123,7 +138,7 @@ func readQuestions(packet[] byte , QDCOUNT uint16) []question{
 		 offset += 2;
 
 	}
-	return questions;
+	return questions , offset;
 }
 
 //pos is 0 indexed
@@ -148,4 +163,16 @@ func print_header(packet []byte){
 	fmt.Println("ANCOUNT = ",header.ANCOUNT);
 	fmt.Println("NSCOUNT = ",header.NSCOUNT);
 	fmt.Println("ARCOUNT = ",header.ARCOUNT);
+}
+func readAnswer(packet []byte , offset int , ANCOUNT int) (int){
+	//start reading the resource record 
+
+	name , offset := readName(packet , offset);
+	fmt.Println(name);
+
+	return offset;
+}
+
+func readResourceRecord(packet []byte , offset int , ANCOUNT int) {
+
 }

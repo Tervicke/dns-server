@@ -3,6 +3,7 @@ package main
 type DNSPacket struct{
 	header header;
 	question []question;
+	answers any;
 }
 type header struct{
 	Id uint16;
