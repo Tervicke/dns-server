@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/netip"
+	"strings"
 )
 func parsePacket(packet []byte) DNSPacket{
 	DNSPacket := DNSPacket{};
@@ -93,7 +94,7 @@ func readHeader(packet []byte) header{
 //returns the label as string for eg google.com + the next offset 
 func readName(packet []byte ,offset int) (string , int){
 	 //QNAME 
-	label := "";
+	var sb strings.Builder;
 	 for true{
 
 		 label_size := int(packet[offset]);
@@ -117,11 +118,12 @@ func readName(packet []byte ,offset int) (string , int){
 
 
 		 for j := offset ; j < offset + label_size ; j++{
-			 label += string(rune(packet[j]));
+			 sb.WriteString(string(rune(packet[j])));
 		 }
 		 offset += label_size;
-		 label += ".";
+		 sb.WriteString(".");
 	 }
+	 label := sb.String();
 	 if(len(label) == 0){
 		 return "",offset;
 	 }
@@ -131,7 +133,7 @@ func readName(packet []byte ,offset int) (string , int){
 func readQuestions(packet[] byte , QDCOUNT int) ( []question , int){
  	var questions []question;
 	var offset int = 12; //start with 12 because the header is exactly 12 bytes (i.e ends at 11th index)
-	 for i := 0 ; i < QDCOUNT ; i++ {
+	 for range QDCOUNT {
 		 q := question{};
 		 q.Name , offset = readName(packet,offset);
 
@@ -196,24 +198,25 @@ func readResourceRecord(packet []byte ,offset int) (resourceRecord , int){
 	record.Len = rdlen;
 	offset += 2;
 	//A OR AAAA TYPE
-	if (rrtype == 1 || rrtype == 28){
+	switch(rrtype){
+	case 1:
+	case 28:
 		addr , ok := netip.AddrFromSlice(packet[offset:offset+int(rdlen)]);
 		if !ok { fmt.Println("could not parse net ip addr"); }
 		record.Addr = addr;
-	} else if( rrtype == 2){
+	case 2:
 		name , _ := readName(packet , offset);
 		record.Host = name;
-	}else{
+	default:
 		fmt.Printf("not recgonized rrtype = %d , SKIPPING THE PAYLOAD",rrtype);
 	}
-
 	offset+=int(rdlen);
 	return record,offset;
 }
 
 func readAnswer(packet []byte , offset int , ANCOUNT int) ([]resourceRecord,int){
 	var answer []resourceRecord;
-	for i := 0 ; i < ANCOUNT ; i++ {
+	for range ANCOUNT{
 		record , newOffset := readResourceRecord(packet,offset);
 		offset = newOffset;
 		answer = append(answer, record);
@@ -223,7 +226,7 @@ func readAnswer(packet []byte , offset int , ANCOUNT int) ([]resourceRecord,int)
 
 func readAuthority(packet []byte , offset int , NSCOUNT int) ([]resourceRecord,int){
 	var authority []resourceRecord;
-	for i := 0 ; i < NSCOUNT; i++ {
+	for range NSCOUNT{
 		record , newOffset := readResourceRecord(packet,offset);
 		offset = newOffset;
 		authority = append(authority, record);
@@ -234,7 +237,7 @@ func readAuthority(packet []byte , offset int , NSCOUNT int) ([]resourceRecord,i
 
 func readAdditional(packet []byte , offset int , ARCOUNT int) ([]resourceRecord,int){
 	var add []resourceRecord;
-	for i := 0 ; i < ARCOUNT; i++ {
+	for range ARCOUNT {
 		record , newOffset := readResourceRecord(packet,offset);
 		offset = newOffset;
 		add = append(add, record);
