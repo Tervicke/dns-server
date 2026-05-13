@@ -1,9 +1,10 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
-	"net"
 	"log"
+	"net"
 )
 
 func sendDNSPacket(p DNSPacket){
@@ -42,10 +43,7 @@ func processPacket(packet []byte) {
 		// sendPacket(packet);
 	}
 }
-
-func main(){
-
-	// start the udp server
+func startUDPServer(){
 	log.Println("Starting the udp server on port 8080")
 	address , err := net.ResolveUDPAddr("udp",":8080");
 	if err != nil {
@@ -66,7 +64,15 @@ func main(){
 			fmt.Printf("ERROR: %v\n",err);
 			continue;
 		}
-
-		processPacket(buffer);
+		fmt.Println(buffer);
 	}
+}
+
+func main(){
+	question , err := hex.DecodeString("00d10120000100000000000106676f6f676c6503636f6d000001000100002904d000000000000c000a00080509ecacd04299f5");
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(question);
+	unParsePacket( parsePacket(question) );
 }

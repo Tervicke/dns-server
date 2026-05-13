@@ -208,7 +208,7 @@ func readResourceRecord(packet []byte ,offset int) (resourceRecord , int){
 		name , _ := readName(packet , offset);
 		record.Host = name;
 	default:
-		fmt.Printf("not recgonized rrtype = %d , SKIPPING THE PAYLOAD",rrtype);
+		fmt.Printf("not recgonized rrtype = %d , SKIPPING THE PAYLOAD\n",rrtype);
 	}
 	offset+=int(rdlen);
 	return record,offset;
@@ -244,3 +244,80 @@ func readAdditional(packet []byte , offset int , ARCOUNT int) ([]resourceRecord,
 	}
 	return add,offset;
 }
+
+func unParsePacket(DNSPacket DNSPacket){ 
+	var packet []byte;
+	packet = unParseHeader( DNSPacket ,packet);
+	fmt.Println(packet);
+}
+func unParseHeader(DNSPacket DNSPacket , packet []byte) []byte {
+	//unparse the ID 
+	var tmp [2]byte; //tmp storage of byte to append it to the packet later on
+	binary.BigEndian.PutUint16(tmp[:],DNSPacket.header.Id);
+	packet = append(packet, tmp[:]...);
+	
+	//the flag bytes
+	var flag uint16 = 0;
+
+	if(DNSPacket.header.Isquery){
+	}else{
+		var mask uint16 = (uint16(1) << 15);
+		flag = flag | mask;
+	}
+
+	
+	opcodeMask := DNSPacket.header.Opcode << 11;
+	flag = flag | opcodeMask;
+
+	if(DNSPacket.header.AA){
+		var mask uint16 = (uint16(1) << 10);
+		flag = flag | mask;
+	}else{
+	}
+
+
+	if(DNSPacket.header.TC){
+		var mask uint16 = (uint16(1) << 9);
+		flag = flag | mask;
+	}else{
+	}
+
+
+	if(DNSPacket.header.RD){
+		var mask uint16 = (uint16(1) << 8);
+		flag = flag | mask;
+	}else{
+	}
+
+
+	if(DNSPacket.header.RA){
+		var mask uint16 = (uint16(1) << 7);
+		flag = flag | mask;
+	}else{
+	}
+
+	//no need to update Z
+	zMask := DNSPacket.header.Z << 4;
+	flag = flag | zMask;
+
+	rcode := DNSPacket.header.Rcode;
+	flag = flag | rcode;
+
+	binary.BigEndian.PutUint16(tmp[:],flag);
+	packet = append(packet, tmp[:]...);
+	
+	binary.BigEndian.PutUint16(tmp[:],DNSPacket.header.QDCOUNT);
+	packet = append(packet, tmp[:]...);
+
+	binary.BigEndian.PutUint16(tmp[:],DNSPacket.header.ANCOUNT);
+	packet = append(packet, tmp[:]...);
+
+	binary.BigEndian.PutUint16(tmp[:],DNSPacket.header.NSCOUNT);
+	packet = append(packet, tmp[:]...);
+
+	binary.BigEndian.PutUint16(tmp[:],DNSPacket.header.ARCOUNT);
+	packet = append(packet, tmp[:]...);
+
+	return packet;
+}
+
