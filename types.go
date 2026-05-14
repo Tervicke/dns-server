@@ -19,6 +19,9 @@ type resourceRecord struct{
 
 	Addr netip.Addr;
 	Host string; 
+
+	//The actual data incase of unknown rrtypes
+	Data []byte;
 }
 
 type header struct{

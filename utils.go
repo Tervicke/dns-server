@@ -199,8 +199,7 @@ func readResourceRecord(packet []byte ,offset int) (resourceRecord , int){
 	offset += 2;
 	//A OR AAAA TYPE
 	switch(rrtype){
-	case 1:
-	case 28:
+	case 1,28:
 		addr , ok := netip.AddrFromSlice(packet[offset:offset+int(rdlen)]);
 		if !ok { fmt.Println("could not parse net ip addr"); }
 		record.Addr = addr;
@@ -208,8 +207,9 @@ func readResourceRecord(packet []byte ,offset int) (resourceRecord , int){
 		name , _ := readName(packet , offset);
 		record.Host = name;
 	default:
-		fmt.Printf("not recgonized rrtype = %d , SKIPPING THE PAYLOAD\n",rrtype);
+		// fmt.Printf("not recgonized rrtype = %d , SKIPPING THE PAYLOAD\n",rrtype);
 	}
+	record.Data = append([]byte(nil), packet[offset:offset+int(rdlen)]...)
 	offset+=int(rdlen);
 	return record,offset;
 }
@@ -245,10 +245,13 @@ func readAdditional(packet []byte , offset int , ARCOUNT int) ([]resourceRecord,
 	return add,offset;
 }
 
-func unParsePacket(DNSPacket DNSPacket){ 
+func unParsePacket(DNSPacket DNSPacket) []byte { 
 	var packet []byte;
 	packet = unParseHeader( DNSPacket ,packet);
+	packet = unParseQuestion(DNSPacket,packet);
+	packet = unParseAdditional(DNSPacket , packet);
 	fmt.Println(packet);
+	return packet;
 }
 func unParseHeader(DNSPacket DNSPacket , packet []byte) []byte {
 	//unparse the ID 
@@ -320,4 +323,72 @@ func unParseHeader(DNSPacket DNSPacket , packet []byte) []byte {
 
 	return packet;
 }
+func unParseQuestion(DNSPacket DNSPacket ,packet []byte) []byte {
+	// offset := 12;
+	for _ , q := range DNSPacket.question{
+		packet = appendLabel(q.Name,packet);
+		packet = binary.BigEndian.AppendUint16(packet,q.Type);
+		packet = binary.BigEndian.AppendUint16(packet,q.Class);
+	}
+	return packet;
+}
 
+func appendLabel(name string, packet []byte) []byte {
+	if name == "" || name == "."{
+		return append(packet,0);
+	}
+
+	for n := range strings.SplitSeq(name,"."){
+		if n == ""{
+			continue
+		}
+
+		packet = append(packet,byte(len(n)));
+		packet = append(packet,[]byte(n)...);
+	} 
+	packet = append(packet,0);
+	return packet;
+}
+func unParseAdditional(DNSPacket DNSPacket , packet []byte) []byte {
+	for i := range DNSPacket.header.ARCOUNT{
+		packet = unParseRecord(DNSPacket.additional[i],packet);
+	} 
+	return packet;
+}
+
+func unParseAnswer(DNSPacket DNSPacket , packet []byte) []byte {
+	for i := range DNSPacket.header.ANCOUNT{
+		packet = unParseRecord(DNSPacket.answers[i],packet);
+	} 
+	return packet;
+}
+
+func unParseAuthority(DNSPacket DNSPacket , packet []byte) []byte {
+	for i := range DNSPacket.header.NSCOUNT{
+		packet = unParseRecord(DNSPacket.authority[i],packet);
+	} 
+	return packet;
+}
+
+func unParseRecord(record resourceRecord , packet []byte) []byte{
+	packet = appendLabel(record.Name,packet);
+	packet = binary.BigEndian.AppendUint16(packet,record.RRtype);
+	packet = binary.BigEndian.AppendUint16(packet,record.Class);
+	packet = binary. BigEndian.AppendUint32(packet,record.TTL);
+
+	var rdata []byte
+
+	switch record.RRtype {
+	case 1, 28:
+		rdata = record.Addr.AsSlice()
+	case 2:
+		rdata = appendLabel("", nil)
+		rdata = appendLabel(record.Host, nil)
+	default:
+		rdata = record.Data
+	}
+
+	packet = binary.BigEndian.AppendUint16(packet, uint16(len(rdata)))
+	packet = append(packet, rdata...)
+	return packet;
+}
