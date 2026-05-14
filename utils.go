@@ -105,29 +105,33 @@ func readName(packet []byte ,offset int) (string , int){
 			 temp := binary.BigEndian.Uint16(packet[offset:offset+2]);
 			 pointerOffset := (temp  & 16383); //1683 = 0011 1111 1111 1111
 			 name , _ := readName(packet , int(pointerOffset));
-			 offset+=2;
-			 return name,offset;
-		 }
-		
-		 //normally parse the labels
-		 offset++;
-		 //hit the delimeter
-		 if label_size == 0 {
+			 sb.WriteString(name);
+			 offset += 2;
 			 break;
-		 }
+		 }else{
+			 //normally parse the labels
+			 offset++;
+			 //hit the delimeter
+			 if label_size == 0 {
+				 break;
+			 }
 
-
-		 for j := offset ; j < offset + label_size ; j++{
-			 sb.WriteString(string(rune(packet[j])));
+			 for j := offset ; j < offset + label_size ; j++{
+				 sb.WriteString(string(rune(packet[j])));
+			 }
+			 offset += label_size;
+			 sb.WriteString(".");
 		 }
-		 offset += label_size;
-		 sb.WriteString(".");
 	 }
 	 label := sb.String();
 	 if(len(label) == 0){
 		 return "",offset;
 	 }
-	 return label[0:len(label)-1],offset;
+	 if(label[len(label)-1] == '.'){
+		return label[0:len(label)-1],offset;
+	}else{
+		return label,offset;
+	}
 }
 
 func readQuestions(packet[] byte , QDCOUNT int) ( []question , int){

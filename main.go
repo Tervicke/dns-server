@@ -1,15 +1,15 @@
 package main
 
 import (
-	// "bytes"
 	"bytes"
 	"encoding/hex"
 	"fmt"
 	"log"
+	"bufio"
 	"net"
 )
 
-func sendDNSPacket(p DNSPacket){
+func sendDNSPacketToRootServer(p DNSPacket) DNSPacket{
 	conn, err := net.DialUDP(
     "udp",
     nil,
@@ -20,31 +20,33 @@ func sendDNSPacket(p DNSPacket){
 	)
 	if err != nil {
 			panic(err)
-	}
-	p.header.RD = false;
-	defer conn.Close()
-	log.Println("Sent the query to the root server");
-	
-	buf := make([]byte,512)
-	n , err := conn.Read(buf);
-	if err != nil {
-		panic(err)
+	} 
+	response := make([]byte,1024);
+	conn.Write(unParsePacket(p));
+	defer conn.Close();
+	fmt.Println("wrote the packet to the root server");
+	_ , err = bufio.NewReader(conn).Read(response)
 
+	var DNSPacketResponse DNSPacket;
+	if err == nil {
+		fmt.Println("Recived response");
+		DNSPacketResponse = parsePacket(response);
+		fmt.Printf("%+v\n",DNSPacketResponse);
+		return DNSPacketResponse;
+	} else {
+			fmt.Printf("Some error %v\n", err);
+			return DNSPacketResponse; //empty
 	}
-	response := buf[:n]
-	DNSPacket := parsePacket(response);
-	fmt.Println(DNSPacket);
+
 }
 
-func processPacket(packet []byte) {
-	DNSPacket := parsePacket(packet);
-	fmt.Printf("%+v",DNSPacket);
-	fmt.Println("-----------------------------------");
-	fmt.Println(DNSPacket.header.Isquery)
-	if(DNSPacket.header.Isquery){
-		// sendPacket(packet);
-	}
+func processDNSPacket(DNSPacket DNSPacket , upstream net.Addr , conn *net.UDPConn) {
+	fmt.Println("constructed the DNSPacket");
+	respPacket := sendDNSPacketToRootServer(DNSPacket);
+	respBytes := unParsePacket(respPacket); 
+	conn.WriteTo(respBytes,upstream);
 }
+
 func startUDPServer(){
 	log.Println("Starting the udp server on port 8080")
 	address , err := net.ResolveUDPAddr("udp",":8080");
@@ -60,20 +62,25 @@ func startUDPServer(){
 	buffer := make([]byte,512)
 	for {
 
-		_  , _ , err := conn.ReadFrom(buffer)
+		_  , addr , err := conn.ReadFrom(buffer)
 
 		if err != nil {
 			fmt.Printf("ERROR: %v\n",err);
 			continue;
 		}
-		fmt.Println(buffer);
+		fmt.Println("recieved packet from",addr.String());
+		DNSPacket := parsePacket(buffer);
+		processDNSPacket(DNSPacket,addr,conn);
+
 	}
 }
 
 func main(){
-	 // testQuestion();
-	 testAnswer();
+	startUDPServer();
 }
+
+
+
 func testQuestion(){
 	question , err := hex.DecodeString("00d10120000100000000000106676f6f676c6503636f6d000001000100002904d000000000000c000a00080509ecacd04299f5");
 	if err != nil {
