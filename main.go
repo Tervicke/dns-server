@@ -1,20 +1,20 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/hex"
 	"fmt"
 	"log"
-	"bufio"
 	"net"
 )
 
-func sendDNSPacketToRootServer(p DNSPacket) DNSPacket{
+func sendDNSPacketToServer(p DNSPacket , ip string) DNSPacket{
 	conn, err := net.DialUDP(
     "udp",
     nil,
     &net.UDPAddr{
-        IP:   net.ParseIP("198.41.0.4"),
+        IP:   net.ParseIP(ip),
         Port: 53,
     },
 	)
@@ -24,14 +24,11 @@ func sendDNSPacketToRootServer(p DNSPacket) DNSPacket{
 	response := make([]byte,1024);
 	conn.Write(unParsePacket(p));
 	defer conn.Close();
-	fmt.Println("wrote the packet to the root server");
 	_ , err = bufio.NewReader(conn).Read(response)
 
 	var DNSPacketResponse DNSPacket;
 	if err == nil {
-		fmt.Println("Recived response");
 		DNSPacketResponse = parsePacket(response);
-		fmt.Printf("%+v\n",DNSPacketResponse);
 		return DNSPacketResponse;
 	} else {
 			fmt.Printf("Some error %v\n", err);
@@ -41,34 +38,66 @@ func sendDNSPacketToRootServer(p DNSPacket) DNSPacket{
 }
 
 func processDNSPacket(DNSPacket DNSPacket , upstream net.Addr , conn *net.UDPConn) {
-	fmt.Println("constructed the DNSPacket");
-	respPacket := sendDNSPacketToRootServer(DNSPacket);
+	//root server call
+	respPacket := sendDNSPacketToServer(DNSPacket , "198.41.0.4");
+	
+	//tld server call
+	glueRecord := respPacket.additional[0];
+	fmt.Println("TARGET IP =",glueRecord.Addr.String());
+	found := false;
+	var ip net.IP;
+	for _ , r := range respPacket.additional{
+		if(r.Addr.IsValid() && r.Addr.Is4()){
+			found = true;
+			ip = net.IP(r.Addr.AsSlice());
+			break;
+		}
+		fmt.Println("SKIPPPING A BAD RECORD");
+	}
+	if(!found){
+		panic("could not get any authority records")
+	}
+	respPacket = sendDNSPacketToServer(DNSPacket,ip.String())
+
+	//authority server call
+	found = false;
+	for _ , r := range respPacket.additional{
+		if(r.Addr.IsValid() && r.Addr.Is4()){
+			found = true;
+			ip = net.IP(r.Addr.AsSlice());
+			break;
+		}
+		fmt.Println("SKIPPPING A BAD RECORD");
+	}
+	if(!found){
+		panic("could not get any authority records")
+	}
+	respPacket = sendDNSPacketToServer(DNSPacket,ip.String());
+	fmt.Printf("%+v",respPacket);
 	respBytes := unParsePacket(respPacket); 
 	conn.WriteTo(respBytes,upstream);
 }
 
 func startUDPServer(){
-	log.Println("Starting the udp server on port 8080")
 	address , err := net.ResolveUDPAddr("udp",":8080");
 	if err != nil {
 		log.Fatal(err)
 	}
 	conn , err := net.ListenUDP("udp",address);
-
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Println("Started the udp server on port 8080")
 	defer conn.Close()
 	buffer := make([]byte,512)
 	for {
-
 		_  , addr , err := conn.ReadFrom(buffer)
 
 		if err != nil {
 			fmt.Printf("ERROR: %v\n",err);
 			continue;
 		}
-		fmt.Println("recieved packet from",addr.String());
+		fmt.Println("packet recieved");
 		DNSPacket := parsePacket(buffer);
 		processDNSPacket(DNSPacket,addr,conn);
 

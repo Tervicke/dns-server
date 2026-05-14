@@ -253,8 +253,9 @@ func unParsePacket(DNSPacket DNSPacket) []byte {
 	var packet []byte;
 	packet = unParseHeader( DNSPacket ,packet);
 	packet = unParseQuestion(DNSPacket,packet);
+	packet = unParseAnswer(DNSPacket,packet);
 	packet = unParseAdditional(DNSPacket , packet);
-	fmt.Println(packet);
+	packet = unParseAuthority(DNSPacket,packet);
 	return packet;
 }
 func unParseHeader(DNSPacket DNSPacket , packet []byte) []byte {
