@@ -254,8 +254,8 @@ func unParsePacket(DNSPacket DNSPacket) []byte {
 	packet = unParseHeader( DNSPacket ,packet);
 	packet = unParseQuestion(DNSPacket,packet);
 	packet = unParseAnswer(DNSPacket,packet);
-	packet = unParseAdditional(DNSPacket , packet);
 	packet = unParseAuthority(DNSPacket,packet);
+	packet = unParseAdditional(DNSPacket , packet);
 	return packet;
 }
 func unParseHeader(DNSPacket DNSPacket , packet []byte) []byte {
@@ -385,6 +385,12 @@ func unParseRecord(record resourceRecord , packet []byte) []byte{
 
 	switch record.RRtype {
 	case 1, 28:
+		fmt.Println(
+			record.Name,
+			record.RRtype,
+			record.Addr,
+			len(record.Addr.AsSlice()),
+		)
 		rdata = record.Addr.AsSlice()
 	case 2:
 		rdata = appendLabel("", nil)

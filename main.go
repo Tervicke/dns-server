@@ -302,6 +302,7 @@ func processDNSPacket(DNSPacket DNSPacket , upstream net.Addr , conn *net.UDPCon
 			}
 			c.Add(query.getString(),IPs,time.Duration(TTL)*time.Second);
 			answer.header.RA = true;
+			fmt.Printf("%+v\n",answer);
 			respBytes := unParsePacket(answer); 
 			conn.WriteTo(respBytes,upstream);
 		}
