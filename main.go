@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
+	"math/rand"
 	"net"
 	"net/netip"
 	"strings"
 	"time"
-	"math/rand"
+
 	"github.com/patrickmn/go-cache"
 )
 var c *cache.Cache = cache.New(cache.NoExpiration,cache.DefaultExpiration);  
@@ -268,25 +270,41 @@ func returnClosestDelegation(query RRSet) string {
 }
 
 func processDNSPacket(DNSPacket DNSPacket , upstream net.Addr , conn *net.UDPConn) {
-	var answerRecords []resourceRecord;
+	log.Println("processing this new query")
 	//set the default value in solovedQuestion
-	for _ , q := range DNSPacket.question{
+	q := DNSPacket.question[0] //only process the first question
 		query := RRSet{q.Name,q.Type};
 		//see if u the exact query in the cache
 		ans , expiryTime , found := c.GetWithExpiration(query.getString());
+		log.Println("looking in the cache for the exact match");
 		if found{
+			log.Println("found the exact match");
 			answer := getRecords(expiryTime,query,ans.([]string));
-			answerRecords = append(answerRecords, answer...);
-			continue;
-		}
 
-		closestDelegationIP := returnClosestDelegation(query);//get the server from where u can start resolving
-		fmt.Println("got the closest deligation ip as(should be root probably)",closestDelegationIP);
-		answer := startResolving(DNSPacket , closestDelegationIP)
-		answer.header.RA = true;
-		respBytes := unParsePacket(answer); 
-		conn.WriteTo(respBytes,upstream);
-	}
+			ansPacket := DNSPacket;
+			ansPacket.answers = answer;
+			ansPacket.header.ANCOUNT = uint16(len(answer));
+			ansPacket.header.RA = true;
+			ansPacket.header.Isquery = false;
+
+			respBytes := unParsePacket(ansPacket); 
+			conn.WriteTo(respBytes,upstream);
+		}else{
+			closestDelegationIP := returnClosestDelegation(query);//get the server from where u can start resolving
+			fmt.Println("got the closest deligation ip as(should be root probably)",closestDelegationIP);
+			answer := startResolving(DNSPacket , closestDelegationIP)
+			//cache the answer
+			var IPs []string;
+			var TTL uint32 = math.MaxUint32;
+			for _ , ans := range answer.answers{
+				IPs = append(IPs, ans.Addr.String())
+				TTL = min(TTL,ans.TTL);
+			}
+			c.Add(query.getString(),IPs,time.Duration(TTL)*time.Second);
+			answer.header.RA = true;
+			respBytes := unParsePacket(answer); 
+			conn.WriteTo(respBytes,upstream);
+		}
 }
 
 func startUDPServer(){
@@ -309,6 +327,7 @@ func startUDPServer(){
 			continue;
 		}
 		packetdata := buffer[:n];
+		log.Println("recieved a new query");
 		DNSPacket := parsePacket(packetdata);
 		processDNSPacket(DNSPacket,addr,conn);
 
