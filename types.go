@@ -1,6 +1,10 @@
 package main
 
-import "net/netip"
+import (
+	"fmt"
+	"net/netip"
+	"strings"
+)
 
 type DNSPacket struct{
 	header header;
@@ -46,4 +50,12 @@ type question struct{
 	Name string;
 	Type uint16;
 	Class uint16;
+}
+type RRSet struct{
+	Name string;
+	Type uint16;
+}
+func(r RRSet) getString() string {
+	name := strings.ToLower(strings.TrimSuffix(r.Name, "."))
+  return fmt.Sprintf("%s:%d", name, r.Type)
 }

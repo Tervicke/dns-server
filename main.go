@@ -1,13 +1,16 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
+	"strings"
+	"time"
+	"math/rand"
+	"github.com/patrickmn/go-cache"
 )
+var c *cache.Cache = cache.New(cache.NoExpiration,cache.DefaultExpiration);  
 
 func sendDNSPacketToServer(p DNSPacket , ip string) DNSPacket{
 	conn, err := net.DialUDP(
@@ -21,61 +24,269 @@ func sendDNSPacketToServer(p DNSPacket , ip string) DNSPacket{
 	if err != nil {
 			panic(err)
 	} 
-	response := make([]byte,1024);
-	conn.Write(unParsePacket(p));
 	defer conn.Close();
-	_ , err = bufio.NewReader(conn).Read(response)
-
-	var DNSPacketResponse DNSPacket;
-	if err == nil {
-		DNSPacketResponse = parsePacket(response);
-		return DNSPacketResponse;
-	} else {
-			fmt.Printf("Some error %v\n", err);
-			return DNSPacketResponse; //empty
+	_ , err = conn.Write(unParsePacket(p));
+	fmt.Println(unParsePacket(p)," sent to the server");
+	if err != nil {
+		fmt.Println("write error:",err);
+		return DNSPacket{};
 	}
 
+	response := make([]byte,4096);
+	n , err := conn.Read(response)
+	if err != nil {
+		fmt.Println("read error:",err)
+		return DNSPacket{};
+	}
+	response = response[:n];
+
+	var DNSPacketResponse DNSPacket;
+	DNSPacketResponse = parsePacket(response);
+	return DNSPacketResponse;
+}
+
+func getRecords(expiryTime time.Time , query RRSet , ans []string) []resourceRecord{
+	var answer []resourceRecord;
+	TTL := max(0, uint32(time.Until(expiryTime).Seconds()))
+	if(query.Type == 1){ //A record
+
+		for i := 0 ; i < len(ans) ; i++{
+
+			Addr , err := netip.ParseAddr(ans[i]); 
+			if err != nil {
+				continue;
+			}
+			answer = append(answer, 
+				resourceRecord{
+					Name: query.Name,
+					RRtype: query.Type,
+					Class: 1,
+					TTL:TTL,
+					Addr: Addr,
+				},
+			);
+
+		}
+	}else if(query.Type == 28){ // AAAA record
+ 
+		for i := 0 ; i < len(ans) ; i++{
+
+			Addr , err := netip.ParseAddr(ans[i]); 
+			if err != nil {
+				continue
+			} 
+			answer = append(answer, 
+				resourceRecord{
+					Name: query.Name,
+					RRtype: query.Type,
+					Class: 1,
+					TTL:TTL,
+					Addr: Addr,
+				},
+			);
+
+		}
+	}else if(query.Type == 2){ //NS type
+
+		for i := 0 ; i < len(ans) ; i++{
+
+			answer = append(answer, 
+				resourceRecord{
+					Name: query.Name,
+					RRtype: query.Type,
+					Class: 1,
+					TTL:TTL,
+					Host: ans[i],
+				},
+			);
+
+		}
+
+	}
+	return answer;
+}
+
+//this will accept the DNSPacket and send the respone with the answer of the first DNS packet
+func startResolving(p DNSPacket , currentServer string) DNSPacket { 
+	fmt.Println("started resolving from (outside the loop)",currentServer,"for the record",p.question[0].Name,p.question[0].Type);
+	for {
+		fmt.Println("started resolving from (inside the loop)",currentServer,"for the record",p.question[0].Name,p.question[0].Type);
+		response := sendDNSPacketToServer(p,currentServer);
+		if(response.header.ANCOUNT > 0){
+			fmt.Println("found the answer from ",currentServer);
+			fmt.Printf("%+v\n",response);
+			return response;
+		}
+		fmt.Println("did not find the answer for question now caching the authority and glue if present");
+		//loop through the authority records cache them for later use if they are NS records
+		for _ , r := range response.authority{
+			if r.RRtype != 2{
+				continue
+			}
+			key := RRSet{r.Name,2}.getString();
+			var values []string;
+			if old , found := c.Get(key) ; found {
+				values = old.([]string)
+			}
+			values = append(values, r.Host)
+			c.Set(key,values,time.Duration(r.TTL)*time.Second)
+		} 
+
+		//loop  through the glue and cache the IPs 
+		for _ , r := range response.additional{
+			if r.RRtype != 1 && r.RRtype != 28{
+				continue
+			}
+			key := RRSet{r.Name,r.RRtype}.getString();
+			var values []string;
+			if old , found := c.Get(key) ; found {
+				values = old.([]string)
+			}
+			values = append(values, r.Addr.String())
+			c.Set(key,values,time.Duration(r.TTL)*time.Second)
+		}
+
+
+		var nextNs string;
+		for _ , r := range response.authority{
+			if r.RRtype == 2 {
+				nextNs = r.Host;
+				continue;
+			}
+		}
+		if nextNs == ""	{
+			panic("did not find the NS");
+		}
+		fmt.Println("caching done , found the Next NS as",nextNs);
+		
+		//get the ip of the nextNameServer
+		currentServer = resolveHostNameToIP(nextNs);
+		fmt.Println("set the current server as",currentServer);
+	}
+	return DNSPacket{};
+}
+func resolveHostNameToIP(host string) string {
+
+	// normalize
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+
+	// first try cache directly
+	query := RRSet{
+		Name: host,
+		Type: 1, // A record
+	}
+
+	ans, found := c.Get(query.getString())
+	if found {
+		ips := ans.([]string)
+
+		if len(ips) > 0 {
+			fmt.Println("found the cache for ", host, " ", ips[0])
+			return ips[0]
+		}
+	}
+
+	// build DNS query packet
+	packet := DNSPacket{
+		header: header{
+			Id:      uint16(rand.Intn(65535)),
+			RD:      true,
+			QDCOUNT: 1,
+			Isquery: true,
+		},
+
+		question: []question{
+			{
+				Name:  host,
+				Type:  1,
+				Class: 1,
+			},
+		},
+	}
+
+	// get best starting point
+	startingServer := returnClosestDelegation(query)
+
+	fmt.Println("got the closest deligation ip as(should be root probably)", startingServer)
+
+	// fully resolve
+	response := startResolving(packet, startingServer)
+
+	// answer section contains final A records
+	for _, r := range response.answers{
+
+		if r.RRtype == 1 {
+			return r.Addr.String()
+		}
+	}
+
+	panic("could not resolve hostname to ip")
+}
+
+//the only jov of this function is to give me the closestDelegation
+func returnClosestDelegation(query RRSet) string {
+	fmt.Println("returning the closestDelegation for",query.Name," ",query.Type);
+	// var answerRecord []resourceRecord;
+	var closestDelegation string =  "198.41.0.4"; //always the root
+
+	ans , found := c.Get(query.getString());
+	if found{
+		fmt.Println("found the cache for ",query.Name," ",ans.([]string)[0]);
+		return ans.([]string)[0]; //can be hostname or the ip also
+	} 
+
+	if(query.Type == 1){ //Try with NS server
+		//check for the (NS,A)
+		NSquery := RRSet{query.Name , 2}; //for the NS record 
+		ans , valid := c.Get(NSquery.getString());
+		if valid {
+			//get the first hostname (for now)
+			hostName := (ans.([]string))[0]; 
+			fmt.Println("hostname",hostName)
+			//get the server ip
+			closestDelegation = returnClosestDelegation(RRSet{hostName,1}) //serverip which will provide me the record 
+			return closestDelegation;
+		}
+	}
+
+	name := query.Name;
+	name = strings.TrimSuffix(name, ".")
+	parts := strings.Split(name, ".")
+	zone := parts[len(parts)-1]
+	//check for the (ZONE,NS)
+	zoneNSQuery := RRSet{zone,2}; //depending upon whether
+	ans , found = c.Get(zoneNSQuery.getString());
+	if found {
+			//get the first hostname (for now)
+			hostName := (ans.([]string))[0]; 
+			//get the server ip
+			closestDelegation = returnClosestDelegation(RRSet{hostName,1})
+			return closestDelegation
+	}
+
+	return closestDelegation;
 }
 
 func processDNSPacket(DNSPacket DNSPacket , upstream net.Addr , conn *net.UDPConn) {
-	//root server call
-	respPacket := sendDNSPacketToServer(DNSPacket , "198.41.0.4");
-	
-	//tld server call
-	glueRecord := respPacket.additional[0];
-	fmt.Println("TARGET IP =",glueRecord.Addr.String());
-	found := false;
-	var ip net.IP;
-	for _ , r := range respPacket.additional{
-		if(r.Addr.IsValid() && r.Addr.Is4()){
-			found = true;
-			ip = net.IP(r.Addr.AsSlice());
-			break;
+	var answerRecords []resourceRecord;
+	//set the default value in solovedQuestion
+	for _ , q := range DNSPacket.question{
+		query := RRSet{q.Name,q.Type};
+		//see if u the exact query in the cache
+		ans , expiryTime , found := c.GetWithExpiration(query.getString());
+		if found{
+			answer := getRecords(expiryTime,query,ans.([]string));
+			answerRecords = append(answerRecords, answer...);
+			continue;
 		}
-		fmt.Println("SKIPPPING A BAD RECORD");
-	}
-	if(!found){
-		panic("could not get any authority records")
-	}
-	respPacket = sendDNSPacketToServer(DNSPacket,ip.String())
 
-	//authority server call
-	found = false;
-	for _ , r := range respPacket.additional{
-		if(r.Addr.IsValid() && r.Addr.Is4()){
-			found = true;
-			ip = net.IP(r.Addr.AsSlice());
-			break;
-		}
-		fmt.Println("SKIPPPING A BAD RECORD");
+		closestDelegationIP := returnClosestDelegation(query);//get the server from where u can start resolving
+		fmt.Println("got the closest deligation ip as(should be root probably)",closestDelegationIP);
+		answer := startResolving(DNSPacket , closestDelegationIP)
+		answer.header.RA = true;
+		respBytes := unParsePacket(answer); 
+		conn.WriteTo(respBytes,upstream);
 	}
-	if(!found){
-		panic("could not get any authority records")
-	}
-	respPacket = sendDNSPacketToServer(DNSPacket,ip.String());
-	fmt.Printf("%+v",respPacket);
-	respBytes := unParsePacket(respPacket); 
-	conn.WriteTo(respBytes,upstream);
 }
 
 func startUDPServer(){
@@ -91,44 +302,32 @@ func startUDPServer(){
 	defer conn.Close()
 	buffer := make([]byte,512)
 	for {
-		_  , addr , err := conn.ReadFrom(buffer)
+		n  , addr , err := conn.ReadFrom(buffer)
 
 		if err != nil {
 			fmt.Printf("ERROR: %v\n",err);
 			continue;
 		}
-		fmt.Println("packet recieved");
-		DNSPacket := parsePacket(buffer);
+		packetdata := buffer[:n];
+		DNSPacket := parsePacket(packetdata);
 		processDNSPacket(DNSPacket,addr,conn);
 
 	}
 }
 
 func main(){
+	// insertCacheRecord();
 	startUDPServer();
 }
 
+func insertCacheRecord() {
+	q := RRSet{"syswraith.com", 1}
+	
+	addr, _ := netip.ParseAddr("185.199.110.153")
 
-
-func testQuestion(){
-	question , err := hex.DecodeString("00d10120000100000000000106676f6f676c6503636f6d000001000100002904d000000000000c000a00080509ecacd04299f5");
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(question);
-	p := parsePacket(question);
-	packet := unParsePacket( p );
-	fmt.Printf("%+v",p);
-	fmt.Println(bytes.Equal(packet,question));
-}
-func testAnswer(){
-	answer , err := hex.DecodeString("dda2810000010000000d001b06676f6f676c6503636f6d0000010001c013000200010002a3000014016c0c67746c642d73657276657273036e657400c013000200010002a3000004016ac02ac013000200010002a30000040168c02ac013000200010002a30000040164c02ac013000200010002a30000040162c02ac013000200010002a30000040166c02ac013000200010002a3000004016bc02ac013000200010002a3000004016dc02ac013000200010002a30000040169c02ac013000200010002a30000040167c02ac013000200010002a30000040161c02ac013000200010002a30000040163c02ac013000200010002a30000040165c02ac028000100010002a3000004c029a21ec028001c00010002a300001020010500d93700000000000000000030c048000100010002a3000004c0304f1ec048001c00010002a300001020010502709400000000000000000030c058000100010002a3000004c036701ec058001c00010002a30000102001050208cc00000000000000000030c068000100010002a3000004c01f501ec068001c00010002a300001020010500856e00000000000000000030c078000100010002a3000004c0210e1ec078001c00010002a300001020010503231d00000000000000020030c088000100010002a3000004c023331ec088001c00010002a300001020010503d41400000000000000000030c098000100010002a3000004c034b21ec098001c00010002a3000010200105030d2d00000000000000000030c0a8000100010002a3000004c037531ec0a8001c00010002a300001020010501b1f900000000000000000030c0b8000100010002a3000004c02bac1ec0b8001c00010002a30000102001050339c100000000000000000030c0c8000100010002a3000004c02a5d1ec0c8001c00010002a300001020010503eea300000000000000000030c0d8000100010002a3000004c005061ec0d8001c00010002a300001020010503a83e00000000000000020030c0e8000100010002a3000004c01a5c1ec0e8001c00010002a30000102001050383eb00000000000000000030c0f8000100010002a3000004c00c5e1ec0f8001c00010002a3000010200105021ca1000000000000000000300000291000000000000000");
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(answer);
-	p := parsePacket(answer);
-	 // fmt.Printf("%+v\n",p);
-	 packet := unParsePacket( p );
-	 fmt.Println(bytes.Equal(packet,answer));
+	c.Add(
+		q.getString(),
+		[]string{addr.String()},
+		cache.DefaultExpiration,
+	)
 }
