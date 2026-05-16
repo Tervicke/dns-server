@@ -28,7 +28,6 @@ func sendDNSPacketToServer(p DNSPacket , ip string) DNSPacket{
 	} 
 	defer conn.Close();
 	_ , err = conn.Write(unParsePacket(p));
-	fmt.Println(unParsePacket(p)," sent to the server");
 	if err != nil {
 		fmt.Println("write error:",err);
 		return DNSPacket{};
@@ -109,63 +108,83 @@ func getRecords(expiryTime time.Time , query RRSet , ans []string) []resourceRec
 }
 
 //this will accept the DNSPacket and send the respone with the answer of the first DNS packet
-func startResolving(p DNSPacket , currentServer string) DNSPacket { 
-	fmt.Println("started resolving from (outside the loop)",currentServer,"for the record",p.question[0].Name,p.question[0].Type);
+func startResolving(p DNSPacket, currentServer string) DNSPacket {
+	depth := 0
+
 	for {
-		fmt.Println("started resolving from (inside the loop)",currentServer,"for the record",p.question[0].Name,p.question[0].Type);
-		response := sendDNSPacketToServer(p,currentServer);
-		if(response.header.ANCOUNT > 0){
-			fmt.Println("found the answer from ",currentServer);
-			fmt.Printf("%+v\n",response);
-			return response;
+		indent := strings.Repeat("│  ", depth)
+
+		fmt.Printf("%s→ Querying server: %s\n", indent, currentServer)
+
+		response := sendDNSPacketToServer(p, currentServer)
+
+		if response.header.ANCOUNT > 0 {
+			fmt.Printf("%s✓ Final answer received\n", indent)
+			return response
 		}
-		fmt.Println("did not find the answer for question now caching the authority and glue if present");
-		//loop through the authority records cache them for later use if they are NS records
-		for _ , r := range response.authority{
-			if r.RRtype != 2{
+
+		// Cache authority NS records
+		for _, r := range response.authority {
+			if r.RRtype != 2 {
 				continue
 			}
-			key := RRSet{r.Name,2}.getString();
-			var values []string;
-			if old , found := c.Get(key) ; found {
+
+			key := RRSet{r.Name, 2}.getString()
+
+			var values []string
+			if old, found := c.Get(key); found {
 				values = old.([]string)
 			}
+
 			values = append(values, r.Host)
-			c.Set(key,values,time.Duration(r.TTL)*time.Second)
-		} 
+			c.Set(key, values, time.Duration(r.TTL)*time.Second)
+		}
 
-		//loop  through the glue and cache the IPs 
-		for _ , r := range response.additional{
-			if r.RRtype != 1 && r.RRtype != 28{
+		// Cache glue records
+		for _, r := range response.additional {
+			if r.RRtype != 1 && r.RRtype != 28 {
 				continue
 			}
-			key := RRSet{r.Name,r.RRtype}.getString();
-			var values []string;
-			if old , found := c.Get(key) ; found {
+
+			key := RRSet{r.Name, r.RRtype}.getString()
+
+			var values []string
+			if old, found := c.Get(key); found {
 				values = old.([]string)
 			}
+
 			values = append(values, r.Addr.String())
-			c.Set(key,values,time.Duration(r.TTL)*time.Second)
+			c.Set(key, values, time.Duration(r.TTL)*time.Second)
 		}
 
+		var nextNS string
 
-		var nextNs string;
-		for _ , r := range response.authority{
+		for _, r := range response.authority {
 			if r.RRtype == 2 {
-				nextNs = r.Host;
-				continue;
+				nextNS = r.Host
+				break
 			}
 		}
-		if nextNs == ""	{
-			panic("did not find the NS");
+
+		if nextNS == "" {
+			panic("did not find NS")
 		}
-		fmt.Println("caching done , found the Next NS as",nextNs);
-		
-		//get the ip of the nextNameServer
-		currentServer = resolveHostNameToIP(nextNs);
-		fmt.Println("set the current server as",currentServer);
+
+		fmt.Printf("%s→ Next NS: %s\n", indent, nextNS)
+
+		currentServer = resolveHostNameToIP(nextNS)
+
+		fmt.Printf(
+			"%s→ Resolved %s -> %s\n\n",
+			indent,
+			nextNS,
+			currentServer,
+		)
+
+		depth++
 	}
-	return DNSPacket{};
+
+	return DNSPacket{}
 }
 func resolveHostNameToIP(host string) string {
 
@@ -183,7 +202,6 @@ func resolveHostNameToIP(host string) string {
 		ips := ans.([]string)
 
 		if len(ips) > 0 {
-			fmt.Println("found the cache for ", host, " ", ips[0])
 			return ips[0]
 		}
 	}
@@ -209,8 +227,6 @@ func resolveHostNameToIP(host string) string {
 	// get best starting point
 	startingServer := returnClosestDelegation(query)
 
-	fmt.Println("got the closest deligation ip as(should be root probably)", startingServer)
-
 	// fully resolve
 	response := startResolving(packet, startingServer)
 
@@ -227,13 +243,11 @@ func resolveHostNameToIP(host string) string {
 
 //the only jov of this function is to give me the closestDelegation
 func returnClosestDelegation(query RRSet) string {
-	fmt.Println("returning the closestDelegation for",query.Name," ",query.Type);
 	// var answerRecord []resourceRecord;
 	var closestDelegation string =  "198.41.0.4"; //always the root
 
 	ans , found := c.Get(query.getString());
 	if found{
-		fmt.Println("found the cache for ",query.Name," ",ans.([]string)[0]);
 		return ans.([]string)[0]; //can be hostname or the ip also
 	} 
 
@@ -244,7 +258,6 @@ func returnClosestDelegation(query RRSet) string {
 		if valid {
 			//get the first hostname (for now)
 			hostName := (ans.([]string))[0]; 
-			fmt.Println("hostname",hostName)
 			//get the server ip
 			closestDelegation = returnClosestDelegation(RRSet{hostName,1}) //serverip which will provide me the record 
 			return closestDelegation;
@@ -270,15 +283,12 @@ func returnClosestDelegation(query RRSet) string {
 }
 
 func processDNSPacket(DNSPacket DNSPacket , upstream net.Addr , conn *net.UDPConn) {
-	log.Println("processing this new query")
 	//set the default value in solovedQuestion
 	q := DNSPacket.question[0] //only process the first question
 		query := RRSet{q.Name,q.Type};
 		//see if u the exact query in the cache
 		ans , expiryTime , found := c.GetWithExpiration(query.getString());
-		log.Println("looking in the cache for the exact match");
 		if found{
-			log.Println("found the exact match");
 			answer := getRecords(expiryTime,query,ans.([]string));
 
 			ansPacket := DNSPacket;
@@ -291,7 +301,6 @@ func processDNSPacket(DNSPacket DNSPacket , upstream net.Addr , conn *net.UDPCon
 			conn.WriteTo(respBytes,upstream);
 		}else{
 			closestDelegationIP := returnClosestDelegation(query);//get the server from where u can start resolving
-			fmt.Println("got the closest deligation ip as(should be root probably)",closestDelegationIP);
 			answer := startResolving(DNSPacket , closestDelegationIP)
 			//cache the answer
 			var IPs []string;
@@ -302,7 +311,6 @@ func processDNSPacket(DNSPacket DNSPacket , upstream net.Addr , conn *net.UDPCon
 			}
 			c.Add(query.getString(),IPs,time.Duration(TTL)*time.Second);
 			answer.header.RA = true;
-			fmt.Printf("%+v\n",answer);
 			respBytes := unParsePacket(answer); 
 			conn.WriteTo(respBytes,upstream);
 		}
@@ -328,7 +336,6 @@ func startUDPServer(){
 			continue;
 		}
 		packetdata := buffer[:n];
-		log.Println("recieved a new query");
 		DNSPacket := parsePacket(packetdata);
 		processDNSPacket(DNSPacket,addr,conn);
 
