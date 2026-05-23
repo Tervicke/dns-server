@@ -6,14 +6,15 @@ import (
 )
 
 func TestReadHeader(t *testing.T){ 
-	github_query , err := hex.DecodeString("f562010000010000000000000667697468756203636f6d0000010001");
+	valid_query , err := hex.DecodeString("f562010000010000000000000667697468756203636f6d0000010001");
 	if err != nil {
 		t.Fatalf("failed to decode query : %v\n",err)
 	}
 
 	t.Run("Valid DNS query", func(t *testing.T) {
-
-		header := readHeader(github_query); 
+		p := parser{data:valid_query}
+		p.parsePacket();
+		header := p.dnspacket.header; 
 		tests := []struct{
 			name string
 			got any
@@ -40,4 +41,19 @@ func TestReadHeader(t *testing.T){
 		}
 	})
 
+	incomplete_query , err := hex.DecodeString("012342123123");
+	if err != nil {
+		t.Fatalf("could not decode incomplete query")
+	}
+
+	t.Run("Incomplete query",func(t *testing.T) {
+		p := parser{data:incomplete_query}
+		p.parsePacket()
+		if len(p.err) <= 0 {
+			t.Errorf("did not return error with incomplete query");
+		}
+		if p.err[0].Error() != "header not complete"{
+			t.Errorf("mismatched error msg");
+		}
+	})
 }

@@ -59,3 +59,9 @@ func(r RRSet) getString() string {
 	name := strings.ToLower(strings.TrimSuffix(r.Name, "."))
   return fmt.Sprintf("%s:%d", name, r.Type)
 }
+
+type parser struct{
+	data []byte;
+	err []error
+	dnspacket DNSPacket
+}

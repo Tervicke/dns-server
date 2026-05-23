@@ -2,16 +2,20 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net/netip"
 	"strings"
 )
-func parsePacket(packet []byte) DNSPacket{
-	DNSPacket := DNSPacket{};
 
-	header := readHeader(packet);
-	DNSPacket.header = header;
+func parsePacket([]byte) DNSPacket{
+	panic("rewrite in progress")
+}
+func(p *parser) parsePacket(){
+	p.readHeader();
+	// DNSPacket.header = header;
 	
+	/*
 	question , offset  := readQuestions(packet , int(header.QDCOUNT));
 	DNSPacket.question = question;
 
@@ -23,72 +27,30 @@ func parsePacket(packet []byte) DNSPacket{
 
 	additional , offset := readAdditional(packet , offset , int(header.ARCOUNT));
 	DNSPacket.additional = additional;
-
-	return DNSPacket;
+	*/
 }
 
 //extract header
-func readHeader(packet []byte) header{
-	//extract the ID
-	header := header{};
-	header.Id = binary.BigEndian.Uint16(packet[0:2]);
-	
-
-	//extract the flags
+func(p *parser) readHeader() {
+	packet := p.data;
+	if(len(packet) < 12){ //check if header availiable
+		p.err = append(p.err, errors.New("header not complete"))
+		return;
+	}
+	p.dnspacket.header.Id = binary.BigEndian.Uint16(packet[0:2]);
 	flag := binary.BigEndian.Uint16(packet[2:4]);  
-
-	// IS QUERY
-	if( iszero(flag,15) ){ 
-		header.Isquery = true;
-	}else{
-		header.Isquery = false;
-	}
-
-	//OPCODE
-	header.Opcode = (flag >> 11) & 0xF;
-	
-	//AA
-	if(iszero(flag,10)){
-		header.AA = false;
-	}else{
-		header.AA = true;
-	}
-	
-	//TC
-	if(iszero(flag,9)){
-		header.TC = false;
-	}else{
-		header.TC = true;
-	}
-	
-	//RD
-	if(iszero(flag,8)){
-		header.RD = false;
-	}else{
-		header.RD = true;
-	}
-
-	if(iszero(flag,7)){
-		header.RA = false;
-	}else{
-		header.RA = true;
-	}
-
-	header.Z = (flag >> 4) & 7;
-
-	header.Rcode = (flag & 15);
-
-
-	header.QDCOUNT = binary.BigEndian.Uint16(packet[4:6]);
-	
-	header.ANCOUNT = binary.BigEndian.Uint16(packet[6:8]);
-
-	header.NSCOUNT = binary.BigEndian.Uint16(packet[8:10]);
-
-	header.ARCOUNT = binary.BigEndian.Uint16(packet[10:12]);
-
-	//return the header
-	return header;
+	p.dnspacket.header.Isquery = !isZero(flag,15) 
+	p.dnspacket.header.Opcode = (flag >> 11) & 0xF;
+	p.dnspacket.header.AA = isZero(flag,10);
+	p.dnspacket.header.TC = isZero(flag,9);
+	p.dnspacket.header.RD = isZero(flag,8);
+	p.dnspacket.header.RA= isZero(flag,7);
+	p.dnspacket.header.Z = (flag >> 4) & 7;
+	p.dnspacket.header.Rcode = (flag & 15);
+	p.dnspacket.header.QDCOUNT = binary.BigEndian.Uint16(packet[4:6]);
+	p.dnspacket.header.ANCOUNT = binary.BigEndian.Uint16(packet[6:8]);
+	p.dnspacket.header.NSCOUNT = binary.BigEndian.Uint16(packet[8:10]);
+	p.dnspacket.header.ARCOUNT = binary.BigEndian.Uint16(packet[10:12]);
 }
 
 //returns the label as string for eg google.com + the next offset 
@@ -157,28 +119,12 @@ func readQuestions(packet[] byte , QDCOUNT int) ( []question , int){
 }
 
 //pos is 0 indexed
-func iszero(num uint16 , pos int) bool { 
-	if( (num & (1 << pos)) == 0){
-		return true;
+func isZero(num uint16 , pos int) bool{ 
+	if( num & (1 << pos) == 0 ){
+		return false;
 	}
-	return false;
+	return true;
 }
-
-func print_header(packet []byte){
-	header := readHeader(packet)
-	fmt.Println("packet ID = " , header.Id);
-	fmt.Println("Is query = ",header.Isquery);
-	fmt.Println("Opcode = ",header.Opcode);
-	fmt.Println("AA = ",header.AA);
-	fmt.Println("RD = ",header.RD);
-	fmt.Println("RA = ",header.RA);
-	fmt.Println("Z = ",header.Z);
-	fmt.Println("Rcode = ",header.Rcode);
-	fmt.Println("QDCOUNT = ",header.QDCOUNT);
-	fmt.Println("ANCOUNT = ",header.ANCOUNT);
-	fmt.Println("NSCOUNT = ",header.NSCOUNT);
-	fmt.Println("ARCOUNT = ",header.ARCOUNT);
- }
 
 func readResourceRecord(packet []byte ,offset int) (resourceRecord , int){
 	record := resourceRecord{};
