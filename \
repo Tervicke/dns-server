@@ -16,8 +16,6 @@ func(p *parser) parsePacket(){
 	if len(p.err) > 0 {return};
 	p.readQuestions();
 	p.readAnswer();
-	p.readAuthority();
-	p.readAdditional();
 	/*
 	answers , offset := readAnswer(packet , offset , int(header.ANCOUNT))
 	DNSPacket.answers = answers;
@@ -53,13 +51,12 @@ func(p *parser) readHeader() {
 	p.dnspacket.header.ARCOUNT = binary.BigEndian.Uint16(packet[10:12]);
 }
 
-func readName(packet []byte ,offset int) (string , int , error){
+//returns the label as string for eg google.com + the next offset 
+func readName(packet []byte ,offset int) (string , int){
 	 //QNAME 
 	var sb strings.Builder;
 	 for true{
-		 if ( len(packet) <= offset ) {
-			 return "",-1,errors.New("label size not defined");
-		 }
+
 		 label_size := int(packet[offset]);
 
 		 //pointer detected ( 192 = 1100 0000 )
@@ -67,10 +64,7 @@ func readName(packet []byte ,offset int) (string , int , error){
 			 //get the temp 2 bytes
 			 temp := binary.BigEndian.Uint16(packet[offset:offset+2]);
 			 pointerOffset := (temp  & 16383); //1683 = 0011 1111 1111 1111
-			 name , _ , err := readName(packet , int(pointerOffset));
-			 if err != nil {
-				 return "",-1,err;
-			 }
+			 name , _ := readName(packet , int(pointerOffset));
 			 sb.WriteString(name);
 			 offset += 2;
 			 break;
@@ -91,18 +85,13 @@ func readName(packet []byte ,offset int) (string , int , error){
 	 }
 	 label := sb.String();
 	 if(len(label) == 0){
-		 return "",offset,nil;
+		 return "",offset;
 	 }
 	 if(label[len(label)-1] == '.'){
-		return label[0:len(label)-1],offset,nil;
+		return label[0:len(label)-1],offset;
 	}else{
-		return label,offset,nil;
+		return label,offset;
 	}
-}
-
-//returns the label as string for eg google.com + the next offset 
-func readNme(packet []byte ,offset int) (string , int){
-	panic("rewrite underway")
 }
 
 func(p *parser) readQuestions(){
@@ -113,17 +102,7 @@ func(p *parser) readQuestions(){
 	var offset int = 12; // header ends at 11th index)
 	 for range p.dnspacket.header.QDCOUNT {
 		 q := question{};
-		 name , newOffset , err := readName(p.data,offset);
-		 if err != nil {
-			 p.err = append(p.err, err);
-			 return;
-		 }
-		 q.Name = name;
-		 offset = newOffset;
-		 if offset+4 > len(p.data) {
-			 p.err = append(p.err, errors.New("question incomplete"))
-			 return
-		 }
+		 q.Name , offset = readName(p.data,offset);
 		 q.Type = binary.BigEndian.Uint16(p.data[offset:offset+2]); //QTYPE
 		 offset+=2;
 		 q.Class = binary.BigEndian.Uint16(p.data[offset:offset+2]); //QCLASS
@@ -148,7 +127,7 @@ func isZero(num uint16 , pos int) bool{
 func readResourceRecord(packet []byte ,offset int) (resourceRecord , int){
 	record := resourceRecord{};
 
-	name , offset,_ := readName(packet , offset);
+	name , offset := readName(packet , offset);
 	record.Name = name;
 	
 	rrtype := binary.BigEndian.Uint16(packet[offset:offset+2]);
@@ -173,7 +152,7 @@ func readResourceRecord(packet []byte ,offset int) (resourceRecord , int){
 		if !ok { fmt.Println("could not parse net ip addr"); }
 		record.Addr = addr;
 	case 2:
-		name , _ , _:= readName(packet , offset);
+		name , _ := readName(packet , offset);
 		record.Host = name;
 	default:
 		// fmt.Printf("not recgonized rrtype = %d , SKIPPING THE PAYLOAD\n",rrtype);
@@ -183,38 +162,30 @@ func readResourceRecord(packet []byte ,offset int) (resourceRecord , int){
 	return record,offset;
 }
 func(p *parser) readAnswer(){
+	offset := p.offset;
 	for range p.dnspacket.header.ANCOUNT{
-		record , newOffset := readResourceRecord(p.data,p.offset);
-		p.offset = newOffset;
+		record , newOffset := readResourceRecord(p.data,offset);
+		offset = newOffset;
 		p.dnspacket.answers = append(p.dnspacket.answers, record);
 	}
+	p.offset = offset;
 }
 
 func readAnswer(packet []byte , offset int , ANCOUNT int) ([]resourceRecord,int){
 	panic("rewrite in progress")
 }
 
-func(p *parser) readAuthority(){
-	for range p.dnspacket.header.NSCOUNT{
-		record , newOffset := readResourceRecord(p.data,p.offset);
-		p.offset = newOffset;
-		p.dnspacket.authority = append(p.dnspacket.authority, record);
-	}
-}
-
 func readAuthority(packet []byte , offset int , NSCOUNT int) ([]resourceRecord,int){
-	panic("rewrite in progress");
+	var authority []resourceRecord;
+	for range NSCOUNT{
+		record , newOffset := readResourceRecord(packet,offset);
+		offset = newOffset;
+		authority = append(authority, record);
+	}
+	return authority,offset;
 }
 
-func(p *parser) readAdditional(){
-	var add []resourceRecord;
-	for range  p.dnspacket.header.ARCOUNT{
-		record , newOffset := readResourceRecord(p.data,p.offset);
-		p.offset = newOffset;
-		add = append(add, record);
-	}
-	p.dnspacket.additional = add;
-}
+
 func readAdditional(packet []byte , offset int , ARCOUNT int) ([]resourceRecord,int){
 	var add []resourceRecord;
 	for range ARCOUNT {

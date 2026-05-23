@@ -64,4 +64,5 @@ type parser struct{
 	data []byte;
 	err []error
 	dnspacket DNSPacket
+	offset int
 }
