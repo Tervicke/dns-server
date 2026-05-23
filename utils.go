@@ -8,9 +8,6 @@ import (
 	"strings"
 )
 
-func parsePacket([]byte) DNSPacket{
-	panic("rewrite in progress")
-}
 func(p *parser) parsePacket(){
 	p.readHeader();
 	if len(p.err) > 0 {return};
@@ -18,19 +15,8 @@ func(p *parser) parsePacket(){
 	p.readAnswer();
 	p.readAuthority();
 	p.readAdditional();
-	/*
-	answers , offset := readAnswer(packet , offset , int(header.ANCOUNT))
-	DNSPacket.answers = answers;
-
-	authority , offset := readAuthority(packet,offset,int(header.NSCOUNT))
-	DNSPacket.authority= authority;
-
-	additional , offset := readAdditional(packet , offset , int(header.ARCOUNT));
-	DNSPacket.additional = additional;
-	*/
 }
 
-//extract header
 func(p *parser) readHeader() {
 	packet := p.data;
 	if(len(packet) < 12){ //check if header availiable
@@ -100,11 +86,6 @@ func readName(packet []byte ,offset int) (string , int , error){
 	}
 }
 
-//returns the label as string for eg google.com + the next offset 
-func readNme(packet []byte ,offset int) (string , int){
-	panic("rewrite underway")
-}
-
 func(p *parser) readQuestions(){
 	if p.dnspacket.header.QDCOUNT != 1{
 		p.err = append(p.err, errors.New("qdcount not 1"))
@@ -131,10 +112,6 @@ func(p *parser) readQuestions(){
 		 offset += 2;
 	}
 	p.offset = offset;
-}
-
-func readQuestions(packet[] byte , QDCOUNT int) ( []question , int){
-	panic("rewrite in progress")
 }
 
 //pos is 0 indexed
@@ -201,11 +178,6 @@ func(p *parser) readAuthority(){
 		p.dnspacket.authority = append(p.dnspacket.authority, record);
 	}
 }
-
-func readAuthority(packet []byte , offset int , NSCOUNT int) ([]resourceRecord,int){
-	panic("rewrite in progress");
-}
-
 func(p *parser) readAdditional(){
 	var add []resourceRecord;
 	for range  p.dnspacket.header.ARCOUNT{

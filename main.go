@@ -42,7 +42,9 @@ func sendDNSPacketToServer(p DNSPacket , ip string) DNSPacket{
 	response = response[:n];
 
 	var DNSPacketResponse DNSPacket;
-	DNSPacketResponse = parsePacket(response);
+	parser := parser{data:response};
+	parser.parsePacket();
+	DNSPacketResponse = parser.dnspacket;
 	return DNSPacketResponse;
 }
 
@@ -183,8 +185,6 @@ func startResolving(p DNSPacket, currentServer string) DNSPacket {
 
 		depth++
 	}
-
-	return DNSPacket{}
 }
 func resolveHostNameToIP(host string) string {
 
@@ -316,8 +316,8 @@ func processDNSPacket(DNSPacket DNSPacket , upstream net.Addr , conn *net.UDPCon
 		}
 }
 
-func startUDPServer(){
-	address , err := net.ResolveUDPAddr("udp",":8080");
+func startUDPServer(port string){
+	address , err := net.ResolveUDPAddr("udp",port);
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -336,15 +336,16 @@ func startUDPServer(){
 			continue;
 		}
 		packetdata := buffer[:n];
-		DNSPacket := parsePacket(packetdata);
+		p := parser{data:packetdata};
+		p.parsePacket();
+		DNSPacket := p.dnspacket 
 		processDNSPacket(DNSPacket,addr,conn);
 
 	}
 }
 
 func main(){
-	// insertCacheRecord();
-	startUDPServer();
+	startUDPServer(":8080");
 }
 
 func insertCacheRecord() {
